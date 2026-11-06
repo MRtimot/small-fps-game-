@@ -1894,4 +1894,156 @@ if(Math.random()<SUPPORT_CHANCE) triggerSupportHold();
 
 if(now-lastIdleCheck>45000 && now-XK9.lastShotForIdle>45000 && !wonGame){
 lastIdleCheck=now;
-if(Math.random()<0.3) log
+if(Math.random()<0.3) log('SUBSCRIPTION REMINDER: Device not in active use. Renewal: $29/month.','warn');
+}
+
+checkLockExpiry();
+
+if(armBloodOpacity>0){
+armBloodOpacity=Math.max(0, armBloodOpacity - dt*0.02);
+armBloodEl.style.opacity=armBloodOpacity.toFixed(2);
+}
+
+if(controls.isLocked&&!dossierOpen&&!wonGame&&!player.isDead){
+const fwd=new THREE.Vector3();camera.getWorldDirection(fwd);fwd.y=0;fwd.normalize();
+const right=new THREE.Vector3().crossVectors(fwd,camera.up).normalize();
+const mv=new THREE.Vector3();
+if(keys.w) mv.add(fwd);
+if(keys.s) mv.sub(fwd);
+if(keys.d) mv.add(right);
+if(keys.a) mv.sub(right);
+player.moving=mv.length()>0;
+if(player.moving) mv.normalize();
+
+if(charController&&playerBody){
+player.velocityY-=player.gravity*dt;
+if(player.velocityY>0.1){
+charController.enableSnapToGround(0.01);
+}else{
+charController.enableSnapToGround(0.3);
+}
+const desired={
+x:mv.x*player.speed*dt,
+y:player.velocityY*dt,
+z:mv.z*player.speed*dt
+};
+charController.computeColliderMovement(playerCollider,desired);
+const grounded=charController.computedGrounded();
+const corrected=charController.computedMovement();
+const t=playerBody.translation();
+playerBody.setNextKinematicTranslation({
+x:t.x+corrected.x,
+y:t.y+corrected.y,
+z:t.z+corrected.z
+});
+if(grounded&&player.velocityY<=0){
+if(!wasGrounded&&player.velocityY<-3) playLandSound();
+player.velocityY=0;
+player.isGrounded=true;
+}else{
+player.isGrounded=false;
+}
+wasGrounded=player.isGrounded;
+const pos=playerBody.translation();
+camera.position.set(pos.x,pos.y+CC_EYE_OFFSET,pos.z);
+}else{
+camera.position.x+=mv.x*player.speed*dt;
+camera.position.z+=mv.z*player.speed*dt;
+camera.position.x=Math.max(-28,Math.min(28,camera.position.x));
+camera.position.z=Math.max(-28,Math.min(28,camera.position.z));
+player.velocityY-=player.gravity*dt;
+camera.position.y+=player.velocityY*dt;
+if(camera.position.y<=player.height){
+camera.position.y=player.height;
+if(!wasGrounded&&player.velocityY<-3) playLandSound();
+player.velocityY=0;player.isGrounded=true;
+}else player.isGrounded=false;
+wasGrounded=player.isGrounded;
+}
+
+if(Math.abs(recoilOffsetX)>0.0001||Math.abs(recoilOffsetY)>0.0001){
+const rX=recoilOffsetX*(1-player.recoilRecovery);
+const rY=recoilOffsetY*(1-player.recoilRecovery);
+camera.rotation.x-=rX;camera.rotation.y-=rY;
+recoilOffsetX-=rX;recoilOffsetY-=rY;
+}
+const k=80,dmp=12;
+gunSpring.vel.z+=(-k*gunSpring.pos.z-dmp*gunSpring.vel.z)*dt;
+gunSpring.pos.z+=gunSpring.vel.z*dt;
+gunSpring.rotVel.x+=(-k*gunSpring.rot.x-dmp*gunSpring.rotVel.x)*dt;
+gunSpring.rot.x+=gunSpring.rotVel.x*dt;
+swayTime+=dt*(player.moving?10:2);
+const bob=player.moving?0.015:0.004;
+gunHolder.position.x=Math.sin(swayTime)*bob;
+gunHolder.position.y=Math.sin(swayTime*2)*bob*0.5;
+gunHolder.position.z=gunSpring.pos.z*0.05;
+gunHolder.rotation.x=gunSpring.rot.x*0.1;
+gunHolder.rotation.z=-camera.rotation.y*0.05;
+if(mouseDown&&WEAPONS[currentWeapon].isAuto) tryShoot();
+updateBots(dt);
+}
+
+dirLight.position.set(camera.position.x+15,25,camera.position.z+10);
+dirLight.target.position.set(camera.position.x,0,camera.position.z);
+dirLight.target.updateMatrixWorld();
+
+updateProjectiles(dt);
+updateParticles(dt);
+updateDecals(dt);
+
+if(shake.intensity>0.001){
+const s=shake.intensity;
+shakeOff.x=(Math.random()-0.5)*s;
+shakeOff.y=(Math.random()-0.5)*s;
+camera.position.x+=shakeOff.x; camera.position.y+=shakeOff.y;
+shake.intensity*=Math.pow(0.001,dt);
+}
+
+if(ENABLE_PERF_LOG&&frameCount%120===0){
+const info=renderer.info.render;
+console.log(`[Perf] Draws: ${info.calls} | Tris: ${info.triangles}`);
+}
+
+composer.render();
+}
+
+animate();
+updateHUD();updateXK9Panel();
+
+setTimeout(()=>{
+broadcast('固件 3.4.7-BLACKLIST 已加载。',0);
+log('[ARBITER-9] BOOT COMPLETE','dim');
+},8500);
+setTimeout(()=>broadcast('传感器阵列在线。',0),9700);
+setTimeout(()=>broadcast('云端链路已建立。',0),10900);
+setTimeout(()=>broadcast('等待击发。',0),12300);
+
+const startEl=document.getElementById('start');
+document.body.addEventListener('click',()=>{
+if(!bootDone||wonGame) return;
+getAudio();
+if(!controls.isLocked&&!dossierOpen){
+controls.lock();
+startEl.style.display='none';
+}
+});
+controls.addEventListener('unlock',()=>{
+if(!dossierOpen&&!wonGame) startEl.style.display='block';
+mouseDown=false;
+});
+document.addEventListener('pointerlockchange',()=>{
+if(controls.isLocked) startEl.style.display='none';
+});
+
+window.addEventListener('resize',()=>{
+camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
+renderer.setSize(innerWidth,innerHeight);
+composer.setSize(innerWidth,innerHeight);
+if(ssaoPass) ssaoPass.setSize(innerWidth,innerHeight);
+const p=renderer.getPixelRatio();
+fxaa.material.uniforms['resolution'].value.x=1/(innerWidth*p);
+fxaa.material.uniforms['resolution'].value.y=1/(innerHeight*p);
+});
+</script>
+</body>
+</html>
